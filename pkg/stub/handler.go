@@ -1,7 +1,7 @@
 package stub
 
 import (
-	"github.com/onuryilmaz/k8s-operator-example/pkg/apis/k8s/v1"
+	apiv1 "github.com/onuryilmaz/k8s-operator-example/pkg/apis/k8s/v1"
 
 	"github.com/operator-framework/operator-sdk/pkg/sdk/action"
 	"github.com/operator-framework/operator-sdk/pkg/sdk/handler"
@@ -11,6 +11,9 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"strconv"
+	"time"
+	"fmt"
 )
 
 func NewHandler() handler.Handler {
@@ -23,20 +26,34 @@ type Handler struct {
 
 func (h *Handler) Handle(ctx types.Context, event types.Event) error {
 	switch o := event.Object.(type) {
-	case *v1.WeatherReport:
-		err := action.Create(newbusyBoxPod(o))
-		if err != nil && !errors.IsAlreadyExists(err) {
-			logrus.Errorf("Failed to create busybox pod : %v", err)
-			return err
+	case *apiv1.WeatherReport:
+
+		if o.Status.State == "" {
+			weatherPod := weatherReportPod(o)
+			err := action.Create(weatherPod)
+			if err != nil && !errors.IsAlreadyExists(err) {
+				logrus.Errorf("Failed to create weather report pod : %v", err)
+				o.Status.State = "Failed"
+				action.Update(o)
+				return err
+			}
+
+			o.Status.State = "Started"
+			o.Status.Pod = weatherPod.Name
+			action.Update(o)
 		}
 	}
 	return nil
 }
 
-// newbusyBoxPod demonstrates how to create a busybox pod
-func newbusyBoxPod(cr *v1.WeatherReport) *v1.Pod {
+func weatherReportPod(cr *apiv1.WeatherReport) *v1.Pod {
+
+	url := fmt.Sprintf("http://wttr.in/%s?%d", cr.Spec.City, cr.Spec.Days)
+
 	labels := map[string]string{
-		"app": "busy-box",
+		"app":  "weather-report",
+		"city": cr.Spec.City,
+		"days": strconv.Itoa(cr.Spec.Days),
 	}
 	return &v1.Pod{
 		TypeMeta: metav1.TypeMeta{
@@ -44,8 +61,8 @@ func newbusyBoxPod(cr *v1.WeatherReport) *v1.Pod {
 			APIVersion: "v1",
 		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name: "busy-box",
-			Namespace:    "default",
+			Name:      "weather-report-" + strconv.Itoa(time.Now().Nanosecond()),
+			Namespace: "default",
 			OwnerReferences: []metav1.OwnerReference{
 				*metav1.NewControllerRef(cr, schema.GroupVersionKind{
 					Group:   v1.SchemeGroupVersion.Group,
@@ -58,9 +75,9 @@ func newbusyBoxPod(cr *v1.WeatherReport) *v1.Pod {
 		Spec: v1.PodSpec{
 			Containers: []v1.Container{
 				{
-					Name:    "busybox",
-					Image:   "busybox",
-					Command: []string{"sleep", "3600"},
+					Name:    "weather",
+					Image:   "tutum/curl",
+					Command: []string{"sh", "-c", "curl -s " + url + " && sleep 3600"},
 				},
 			},
 		},

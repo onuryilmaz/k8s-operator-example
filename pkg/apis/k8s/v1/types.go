@@ -22,8 +22,11 @@ type WeatherReport struct {
 }
 
 type WeatherReportSpec struct {
-	// Fill me
+	City string `json:"city"`
+	Days int    `json:"days"`
 }
+
 type WeatherReportStatus struct {
-	// Fill me
+	State string `json:"state"`
+	Pod   string `json:"pod"`
 }
